@@ -106,11 +106,8 @@ pub fn grant(
     allow_clawback: bool,
     amount: u64,
 ) -> Result<()> {
-    require_eq!(voter_bump, *ctx.bumps.get("voter").unwrap());
-    require_eq!(
-        voter_weight_record_bump,
-        *ctx.bumps.get("voter_weight_record").unwrap()
-    );
+    require_eq!(voter_bump, ctx.bumps.voter);
+    require_eq!(voter_weight_record_bump, ctx.bumps.voter_weight_record);
 
     // Load accounts.
     let registrar = &ctx.accounts.registrar.load()?;

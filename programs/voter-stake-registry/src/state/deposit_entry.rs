@@ -6,7 +6,7 @@ use std::cmp::min;
 use std::convert::TryFrom;
 
 /// Bookkeeping for a single deposit for a given mint and lockup schedule.
-#[zero_copy]
+#[zero_copy(unsafe)]
 #[derive(Default)]
 pub struct DepositEntry {
     // Locked state.
@@ -145,7 +145,7 @@ impl DepositEntry {
         max_locked_vote_weight: u64,
         lockup_saturation_secs: u64,
     ) -> Result<u64> {
-        let mut altered = self.clone();
+        let mut altered = *self;
 
         // Trigger the unlock phase for constant lockups
         if self.lockup.kind == LockupKind::Constant {
