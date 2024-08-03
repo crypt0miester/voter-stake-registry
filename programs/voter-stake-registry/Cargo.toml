@@ -24,11 +24,6 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
 anchor-spl = { version = "0.30.1" }
 bytemuck = {version = "1.9.1", features = ["derive", "min_const_generics"]}
-
-# WARNING: Be careful about upgrading the spl-governance dependency!
-#          Recently the discriminator for new VoterWeightRecord accounts has changed, and upgrading
-#          this dependency here without also upgrading the spl-governance program instance beforehand
-#          would lead to VWR accounts that are unusable until the spl-governance program is upgraded.
 spl-governance = { version = "4.0", features = ["no-entrypoint"] }
 spl-governance-addin-api = "0.1.4"
 
