@@ -236,7 +236,7 @@ impl GovernanceRealmCookie {
                 &authority.pubkey(),
                 Some(voter.voter_weight_record),
                 spl_governance::state::governance::GovernanceConfig {
-                    min_community_weight_to_create_proposal: 1,
+                    min_community_weight_to_create_proposal: 1000,
                     min_transaction_hold_up_time: 0,
                     min_council_weight_to_create_proposal: 1,
                     community_vote_threshold: VoteThreshold::YesVotePercentage(50),
