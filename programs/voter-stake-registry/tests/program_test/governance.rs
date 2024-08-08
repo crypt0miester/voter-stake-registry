@@ -285,7 +285,10 @@ impl GovernanceRealmCookie {
             &self.community_token_mint.pubkey.unwrap(),
             &proposal_seed,
         );
-        let add_signatory_authority = AddSignatoryAuthority::ProposalOwner { governance_authority: authority.pubkey(), token_owner_record: voter.token_owner_record };
+        let add_signatory_authority = AddSignatoryAuthority::ProposalOwner {
+            governance_authority: authority.pubkey(),
+            token_owner_record: voter.token_owner_record,
+        };
         let instructions = vec![
             vwr_instruction,
             spl_governance::instruction::create_proposal(
