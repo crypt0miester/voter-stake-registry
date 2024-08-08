@@ -3,6 +3,7 @@ use std::sync::Arc;
 use solana_program::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signer};
+use spl_governance::instruction::AddSignatoryAuthority;
 use spl_governance::state::enums::{MintMaxVoterWeightSource, VoteThreshold, VoteTipping};
 use spl_governance::state::realm::GoverningTokenConfigAccountArgs;
 use spl_governance::state::realm_config::GoverningTokenType;
@@ -176,7 +177,7 @@ impl GovernanceRealmCookie {
                 &authority.pubkey(),
                 Some(voter.voter_weight_record),
                 spl_governance::state::governance::GovernanceConfig {
-                    min_community_weight_to_create_proposal: 1,
+                    min_community_weight_to_create_proposal: 1000,
                     min_transaction_hold_up_time: 0,
                     min_council_weight_to_create_proposal: 1,
                     community_vote_threshold: VoteThreshold::YesVotePercentage(50),
@@ -284,7 +285,7 @@ impl GovernanceRealmCookie {
             &self.community_token_mint.pubkey.unwrap(),
             &proposal_seed,
         );
-
+        let add_signatory_authority = AddSignatoryAuthority::ProposalOwner { governance_authority: authority.pubkey(), token_owner_record: voter.token_owner_record };
         let instructions = vec![
             vwr_instruction,
             spl_governance::instruction::create_proposal(
@@ -303,14 +304,14 @@ impl GovernanceRealmCookie {
                 true,
                 &proposal_seed,
             ),
-            // spl_governance::instruction::add_signatory(
-            //     &self.governance.program_id,
-            //     &proposal,
-            //     &voter.token_owner_record,
-            //     &authority.pubkey(),
-            //     &payer.pubkey(),
-            //     &authority.pubkey(),
-            // ),
+            spl_governance::instruction::add_signatory(
+                &self.governance.program_id,
+                &proposal,
+                &voter.token_owner_record,
+                &add_signatory_authority,
+                &payer.pubkey(),
+                &authority.pubkey(),
+            ),
             spl_governance::instruction::sign_off_proposal(
                 &self.governance.program_id,
                 &self.realm,
