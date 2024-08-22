@@ -77,16 +77,16 @@ async fn test_voting() -> Result<(), TransportError> {
         .create_voter(&registrar, &token_owner_record2, &voter2_authority, &payer)
         .await;
 
-    let mint_governance = realm
-        .create_mint_governance(
-            context.mints[0].pubkey.unwrap(),
-            &context.mints[0].authority,
-            &voter,
-            &voter_authority,
-            payer,
-            addin.update_voter_weight_record_instruction(&registrar, &voter),
-        )
-        .await;
+    // let mint_governance = realm
+    //     .create_mint_governance(
+    //         context.mints[0].pubkey.unwrap(),
+    //         &context.mints[0].authority,
+    //         &voter,
+    //         &voter_authority,
+    //         payer,
+    //         addin.update_voter_weight_record_instruction(&registrar, &voter),
+    //     )
+    //     .await;
 
     addin
         .create_deposit_entry(
@@ -118,7 +118,7 @@ async fn test_voting() -> Result<(), TransportError> {
     // need vote weight of 1000, but only have 499 * 2
     realm
         .create_proposal(
-            mint_governance.address,
+            realm.community_token_mint.pubkey.unwrap(),
             &voter_authority,
             &voter,
             payer,
@@ -143,7 +143,7 @@ async fn test_voting() -> Result<(), TransportError> {
 
     let proposal = realm
         .create_proposal(
-            mint_governance.address,
+            realm.community_token_mint.pubkey.unwrap(),
             &voter_authority,
             &voter,
             payer,
@@ -223,7 +223,7 @@ async fn test_voting() -> Result<(), TransportError> {
 
     realm
         .cast_vote(
-            mint_governance.address,
+            realm.community_token_mint.pubkey.unwrap(),
             &proposal,
             &voter2,
             &voter2_authority,
@@ -271,7 +271,7 @@ async fn test_voting() -> Result<(), TransportError> {
 
     realm
         .relinquish_vote(
-            mint_governance.address,
+            realm.community_token_mint.pubkey.unwrap(),
             &proposal,
             voter2.token_owner_record,
             &voter2_authority,

@@ -1,19 +1,16 @@
-use std::sync::Arc;
-
+use program_test::{process_transaction, VoterCookie};
 use solana_program::instruction::Instruction;
-use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::{Keypair, Signer};
 use spl_governance::instruction::AddSignatoryAuthority;
 use spl_governance::state::enums::{MintMaxVoterWeightSource, VoteThreshold, VoteTipping};
 use spl_governance::state::realm::GoverningTokenConfigAccountArgs;
 use spl_governance::state::realm_config::GoverningTokenType;
 use spl_governance::state::{proposal, vote_record};
+use std::sync::Arc;
 
 use crate::*;
 
 #[derive(Clone)]
 pub struct GovernanceCookie {
-    pub solana: Arc<solana::SolanaCookie>,
     pub program_id: Pubkey,
 }
 
@@ -23,7 +20,7 @@ pub struct GovernanceRealmCookie {
     pub authority: Pubkey,
     pub realm: Pubkey,
     pub realm_config: Pubkey,
-    pub community_token_mint: MintCookie,
+    pub community_token_mint: Pubkey,
     pub community_token_account: Pubkey,
 }
 
@@ -51,9 +48,10 @@ pub struct ProposalCookie {
 impl GovernanceCookie {
     pub async fn create_realm(
         &self,
+        rpc_client: &RpcClient,
         name: &str,
-        realm_authority: Pubkey,
-        community_token_mint: &MintCookie,
+        realm_authority: &Pubkey,
+        community_token_mint: &Pubkey,
         payer: &Keypair,
         voter_weight_addin: &Pubkey,
     ) -> GovernanceRealmCookie {
@@ -66,7 +64,7 @@ impl GovernanceCookie {
             &[
                 b"governance".as_ref(),
                 &realm.to_bytes(),
-                &community_token_mint.pubkey.unwrap().to_bytes(),
+                &community_token_mint.to_bytes(),
             ],
             &self.program_id,
         )
@@ -87,7 +85,7 @@ impl GovernanceCookie {
         let instructions = vec![spl_governance::instruction::create_realm(
             &self.program_id,
             &realm_authority,
-            &community_token_mint.pubkey.unwrap(),
+            &community_token_mint,
             &payer.pubkey(),
             None,
             Some(community_token_config_args),
@@ -99,14 +97,13 @@ impl GovernanceCookie {
 
         let signer = Keypair::from_base58_string(&payer.to_base58_string());
 
-        self.solana
-            .process_transaction(&instructions, Some(&[&signer]))
+        process_transaction(rpc_client, &instructions, payer, Some(&[&signer]))
             .await
             .unwrap();
 
         GovernanceRealmCookie {
             governance: self.clone(),
-            authority: realm_authority,
+            authority: *realm_authority,
             realm,
             realm_config,
             community_token_mint: community_token_mint.clone(),
@@ -118,6 +115,7 @@ impl GovernanceCookie {
 impl GovernanceRealmCookie {
     pub async fn create_token_owner_record(
         &self,
+        rpc_client: &RpcClient,
         owner: Pubkey,
         payer: &Keypair,
     ) -> TokenOwnerRecordCookie {
@@ -125,7 +123,7 @@ impl GovernanceRealmCookie {
             &[
                 b"governance".as_ref(),
                 &self.realm.to_bytes(),
-                &self.community_token_mint.pubkey.unwrap().to_bytes(),
+                &self.community_token_mint.to_bytes(),
                 &owner.to_bytes(),
             ],
             &self.governance.program_id,
@@ -136,15 +134,12 @@ impl GovernanceRealmCookie {
             &self.governance.program_id,
             &self.realm,
             &owner,
-            &self.community_token_mint.pubkey.unwrap(),
+            &self.community_token_mint,
             &payer.pubkey(),
         )];
 
         let signer = Keypair::from_base58_string(&payer.to_base58_string());
-
-        self.governance
-            .solana
-            .process_transaction(&instructions, Some(&[&signer]))
+        process_transaction(rpc_client, &instructions, payer, Some(&[&signer]))
             .await
             .unwrap();
 
@@ -154,6 +149,7 @@ impl GovernanceRealmCookie {
     #[allow(dead_code)]
     pub async fn create_account_governance(
         &self,
+        rpc_client: &RpcClient,
         governed_account: Pubkey,
         voter: &VoterCookie,
         authority: &Keypair,
@@ -196,11 +192,14 @@ impl GovernanceRealmCookie {
         let signer1 = Keypair::from_base58_string(&payer.to_base58_string());
         let signer2 = Keypair::from_base58_string(&authority.to_base58_string());
 
-        self.governance
-            .solana
-            .process_transaction(&instructions, Some(&[&signer1, &signer2]))
-            .await
-            .unwrap();
+        process_transaction(
+            &rpc_client,
+            &instructions,
+            payer,
+            Some(&[&signer1, &signer2]),
+        )
+        .await
+        .unwrap();
 
         AccountGovernanceCookie {
             address: account_governance,
@@ -211,6 +210,7 @@ impl GovernanceRealmCookie {
     #[allow(dead_code)]
     pub async fn create_mint_governance(
         &self,
+        rpc_client: &RpcClient,
         governed_mint: Pubkey,
         governed_mint_authority: &Keypair,
         voter: &VoterCookie,
@@ -257,11 +257,14 @@ impl GovernanceRealmCookie {
         let signer2 = Keypair::from_base58_string(&authority.to_base58_string());
         let signer3 = Keypair::from_base58_string(&governed_mint_authority.to_base58_string());
 
-        self.governance
-            .solana
-            .process_transaction(&instructions, Some(&[&signer1, &signer2, &signer3]))
-            .await
-            .unwrap();
+        process_transaction(
+            &rpc_client,
+            &instructions,
+            payer,
+            Some(&[&signer1, &signer2, &signer3]),
+        )
+        .await
+        .unwrap();
 
         MintGovernanceCookie {
             address: mint_governance,
@@ -272,17 +275,18 @@ impl GovernanceRealmCookie {
     #[allow(dead_code)]
     pub async fn create_proposal(
         &self,
+        rpc_client: &RpcClient,
         governance: Pubkey,
         authority: &Keypair,
         voter: &VoterCookie,
         payer: &Keypair,
         vwr_instruction: Instruction,
-    ) -> std::result::Result<ProposalCookie, BanksClientError> {
+    ) -> Result<ProposalCookie, Box<dyn Error>> {
         let proposal_seed = Pubkey::new_unique();
         let proposal = spl_governance::state::proposal::get_proposal_address(
             &self.governance.program_id,
             &governance,
-            &self.community_token_mint.pubkey.unwrap(),
+            &self.community_token_mint,
             &proposal_seed,
         );
         let add_signatory_authority = AddSignatoryAuthority::ProposalOwner {
@@ -301,7 +305,7 @@ impl GovernanceRealmCookie {
                 &self.realm,
                 "test proposal".into(),
                 "description".into(),
-                &self.community_token_mint.pubkey.unwrap(),
+                &self.community_token_mint,
                 proposal::VoteType::SingleChoice,
                 vec!["yes".into()],
                 true,
@@ -328,10 +332,13 @@ impl GovernanceRealmCookie {
         let signer1 = Keypair::from_base58_string(&payer.to_base58_string());
         let signer2 = Keypair::from_base58_string(&authority.to_base58_string());
 
-        self.governance
-            .solana
-            .process_transaction(&instructions, Some(&[&signer1, &signer2]))
-            .await?;
+        process_transaction(
+            &rpc_client,
+            &instructions,
+            authority,
+            Some(&[&signer1, &signer2]),
+        )
+        .await?;
 
         Ok(ProposalCookie {
             address: proposal,
@@ -342,13 +349,14 @@ impl GovernanceRealmCookie {
     #[allow(dead_code)]
     pub async fn cast_vote(
         &self,
+        rpc_client: &RpcClient,
         governance: Pubkey,
         proposal: &ProposalCookie,
         voter: &VoterCookie,
         authority: &Keypair,
         payer: &Keypair,
         vwr_instruction: Instruction,
-    ) -> std::result::Result<(), BanksClientError> {
+    ) -> Result<(), Box<dyn Error>> {
         let instructions = vec![
             vwr_instruction,
             spl_governance::instruction::cast_vote(
@@ -359,7 +367,7 @@ impl GovernanceRealmCookie {
                 &proposal.owner_token_owner_record,
                 &voter.token_owner_record,
                 &authority.pubkey(),
-                &self.community_token_mint.pubkey.unwrap(),
+                &self.community_token_mint,
                 &payer.pubkey(),
                 Some(voter.voter_weight_record),
                 None,
@@ -373,38 +381,39 @@ impl GovernanceRealmCookie {
         let signer1 = Keypair::from_base58_string(&payer.to_base58_string());
         let signer2 = Keypair::from_base58_string(&authority.to_base58_string());
 
-        self.governance
-            .solana
-            .process_transaction(&instructions, Some(&[&signer1, &signer2]))
-            .await
+        process_transaction(
+            &rpc_client,
+            &instructions,
+            authority,
+            Some(&[&signer1, &signer2]),
+        )
+        .await
     }
 
     #[allow(dead_code)]
     pub async fn relinquish_vote(
         &self,
+        rpc_client: &RpcClient,
         governance: Pubkey,
         proposal: &ProposalCookie,
         token_owner_record: Pubkey,
         authority: &Keypair,
         beneficiary: Pubkey,
         goverenance_realm: GovernanceRealmCookie,
-    ) -> std::result::Result<(), BanksClientError> {
+    ) -> Result<(), Box<dyn Error>> {
         let instructions = vec![spl_governance::instruction::relinquish_vote(
             &self.governance.program_id,
             &goverenance_realm.realm,
             &governance,
             &proposal.address,
             &token_owner_record,
-            &self.community_token_mint.pubkey.unwrap(),
+            &self.community_token_mint,
             Some(authority.pubkey()),
             Some(beneficiary),
         )];
 
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        self.governance
-            .solana
-            .process_transaction(&instructions, Some(&[&signer]))
-            .await
+        process_transaction(&rpc_client, &instructions, &signer, None).await
     }
 }
