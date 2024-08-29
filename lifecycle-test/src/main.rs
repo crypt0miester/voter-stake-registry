@@ -5,7 +5,7 @@ use anchor_spl::token::TokenAccount;
 use program_test::{create_mint, governance, mint_tokens, token_account_balance, GovernanceCookie, VsrCookie};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use voter_stake_registry::state::Voter;
-use vsr_lifecycle::{fund_keypairs, initialize_realm_accounts, setup_mints_and_tokens, test_basic, test_clawback};
+use vsr_lifecycle::{fund_keypairs, initialize_realm_accounts, setup_mints_and_tokens, test_basic, test_clawback, test_deposit_cliff, test_deposit_constant, test_deposit_daily_vesting};
 use std::process::Command;
 
 use anchor_client::solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer};
@@ -141,11 +141,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // initialize mints and token accounts
     setup_mints_and_tokens(&mut lifecycle_test, 3).await?;
 
-    let (governance, realm, first_token_owner_record, vsr_addin, registrar, first_voting_mint) = initialize_realm_accounts(&mut lifecycle_test).await?;
+    let (governance, realm, first_token_owner_record, vsr_addin, registrar) = initialize_realm_accounts(&mut lifecycle_test).await?;
     
-    test_basic(&mut lifecycle_test, &vsr_addin, &registrar, &first_token_owner_record, &first_voting_mint).await?;
-    test_clawback(&mut lifecycle_test, &vsr_addin, &registrar, &first_token_owner_record, &first_voting_mint).await?;
-    
+    test_basic(&mut lifecycle_test, &vsr_addin, &registrar, &first_token_owner_record).await?;
+    test_clawback(&mut lifecycle_test, &vsr_addin, &registrar, &first_token_owner_record).await?;
+    test_deposit_cliff(&mut lifecycle_test, &vsr_addin, &registrar, &first_token_owner_record).await?;
+    test_deposit_constant(&mut lifecycle_test, &vsr_addin, &registrar, &first_token_owner_record).await?;
+    test_deposit_daily_vesting(&mut lifecycle_test, &vsr_addin, &registrar, &first_token_owner_record).await?;
     
     println!("Upgraded to spl_governance_4.so");
 

@@ -22,10 +22,10 @@ pub mod utils;
 
 
 pub struct Balances {
-    token: u64,
-    vault: u64,
-    deposit: u64,
-    voter_weight: u64,
+    pub token: u64,
+    pub vault: u64,
+    pub deposit: u64,
+    pub voter_weight: u64,
 }
 
 pub async fn balances(
