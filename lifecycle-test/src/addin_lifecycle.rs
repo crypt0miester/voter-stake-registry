@@ -2,7 +2,7 @@ use crate::{
     program_test::{
         balances, create_mint, mint_tokens, token_account_balance, GovernanceCookie,
         GovernanceRealmCookie, RegistrarCookie, TokenOwnerRecordCookie, VotingMintConfigCookie,
-        VsrCookie,
+        AddinCookie,
     },
     LifecycleTest,
 };
@@ -15,8 +15,12 @@ use voter_stake_registry::state::Voter;
 use tokio::time::{sleep, Duration};
 use solana_program::sysvar::Sysvar;
 
-async fn delay_seconds(seconds: u64) {
+pub async fn delay_seconds(seconds: u64) {
     sleep(Duration::from_secs(seconds)).await;
+}
+
+pub async fn delay_ms(ms: u64) {
+    sleep(Duration::from_millis(ms)).await;
 }
 pub async fn run_lifecycle_tests(lifecycle_test: &mut LifecycleTest) -> Result<(), Box<dyn Error>> {
     // Implementation for running lifecycle tests
@@ -107,15 +111,15 @@ pub async fn initialize_realm_accounts(
         GovernanceCookie,
         GovernanceRealmCookie,
         TokenOwnerRecordCookie,
-        VsrCookie,
+        AddinCookie,
         RegistrarCookie,
     ),
     Box<dyn Error>,
 > {
     let governance = GovernanceCookie {
-        program_id: lifecycle_test.program_id.unwrap(),
+        program_id: lifecycle_test.governance_program_id.unwrap(),
     };
-    let addin_program_id = voter_stake_registry::id();
+    let addin_program_id = lifecycle_test.addin_program_id.unwrap();
     let realm = governance
         .create_realm(
             &lifecycle_test.rpc_client,
@@ -126,6 +130,7 @@ pub async fn initialize_realm_accounts(
             &addin_program_id,
         )
         .await;
+    delay_ms(300).await;
     let first_token_owner_record = realm
         .create_token_owner_record(
             &lifecycle_test.rpc_client,
@@ -134,10 +139,10 @@ pub async fn initialize_realm_accounts(
         )
         .await;
 
-    let vsr_addin = VsrCookie {
+    let addin_cookie = AddinCookie {
         program_id: addin_program_id,
     };
-    let registrar = vsr_addin
+    let registrar = addin_cookie
         .create_registrar(
             &lifecycle_test.rpc_client,
             &realm,
@@ -149,18 +154,19 @@ pub async fn initialize_realm_accounts(
         governance,
         realm,
         first_token_owner_record,
-        vsr_addin,
+        addin_cookie,
         registrar,
     ))
 }
 
 pub async fn test_basic(
     lifecycle_test: &mut LifecycleTest,
-    vsr_addin: &VsrCookie,
+    addin_cookie: &AddinCookie,
     registrar: &RegistrarCookie,
     first_token_owner_record: &TokenOwnerRecordCookie,
 ) -> Result<(), Box<dyn Error>> {
-    let first_voting_mint = vsr_addin
+    delay_seconds(1).await;
+    let first_voting_mint = addin_cookie
         .configure_voting_mint(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -177,7 +183,7 @@ pub async fn test_basic(
         )
         .await;
 
-    let voter = vsr_addin
+    let voter = addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -188,7 +194,7 @@ pub async fn test_basic(
         .await;
 
     // create the voter again, should have no effect
-    vsr_addin
+    addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -203,12 +209,13 @@ pub async fn test_basic(
         &lifecycle_test.first_mint_pubkey.unwrap(),
         &spl_token::id(),
     );
+    delay_ms(300).await;
     let reference_initial =
         token_account_balance(&lifecycle_test.rpc_client, first_voter_first_mint_ata).await;
     let balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(balance_initial, 0);
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -222,8 +229,9 @@ pub async fn test_basic(
             false,
         )
         .await?;
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .deposit(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -235,6 +243,7 @@ pub async fn test_basic(
             10_000,
         )
         .await?;
+    delay_ms(300).await;
 
     let reference_after_deposit =
         token_account_balance(&lifecycle_test.rpc_client, first_voter_first_mint_ata).await;
@@ -246,7 +255,7 @@ pub async fn test_basic(
     let balance_after_deposit = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(balance_after_deposit, 10000);
 
-    vsr_addin
+    addin_cookie
         .withdraw(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -258,6 +267,7 @@ pub async fn test_basic(
             10000,
         )
         .await?;
+    delay_ms(300).await;
 
     let reference_after_withdraw =
         token_account_balance(&lifecycle_test.rpc_client, first_voter_first_mint_ata).await;
@@ -275,7 +285,7 @@ pub async fn test_basic(
         .await?;
 
     // finally we have to always close the voter to test other deposit functions
-    vsr_addin
+    addin_cookie
         .close_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -284,6 +294,7 @@ pub async fn test_basic(
             &lifecycle_test.first_voter_authority,
         )
         .await?;
+    delay_ms(300).await;
 
     let lamports_after = lifecycle_test
         .rpc_client
@@ -305,11 +316,11 @@ pub async fn test_basic(
 
 pub async fn test_clawback(
     lifecycle_test: &mut LifecycleTest,
-    vsr_addin: &VsrCookie,
+    addin_cookie: &AddinCookie,
     registrar: &RegistrarCookie,
     first_token_owner_record: &TokenOwnerRecordCookie,
 ) -> Result<(), Box<dyn Error>> {
-    let first_voting_mint = vsr_addin
+    let first_voting_mint = addin_cookie
         .configure_voting_mint(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -325,7 +336,7 @@ pub async fn test_clawback(
             None,
         )
         .await;
-    let voter = vsr_addin
+    let voter = addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -334,9 +345,10 @@ pub async fn test_clawback(
             &lifecycle_test.first_voter_authority,
         )
         .await;
+    delay_ms(300).await;
 
     // create the voter again, should have no effect
-    vsr_addin
+    addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -365,7 +377,7 @@ pub async fn test_clawback(
     let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_initial, 0);
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -379,8 +391,9 @@ pub async fn test_clawback(
             true,
         )
         .await?;
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .deposit(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -393,6 +406,7 @@ pub async fn test_clawback(
         )
         .await?;
 
+    delay_ms(300).await;
     let realm_ata_after_deposit =
         token_account_balance(&lifecycle_test.rpc_client, realm_authority_ata).await;
     assert_eq!(realm_ata_initial, realm_ata_after_deposit + 10000);
@@ -404,7 +418,7 @@ pub async fn test_clawback(
     assert_eq!(voter_balance_after_deposit, 10000);
 
     // Advance almost three days for some vesting to kick in
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -412,8 +426,9 @@ pub async fn test_clawback(
             (3 * 24 - 1) * 60 * 60,
         )
         .await;
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .withdraw(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -425,8 +440,9 @@ pub async fn test_clawback(
             999,
         )
         .await?;
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .clawback(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -437,8 +453,9 @@ pub async fn test_clawback(
             0,
         )
         .await?;
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .withdraw(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -450,6 +467,7 @@ pub async fn test_clawback(
             1001,
         )
         .await?;
+    delay_ms(300).await;
 
     let realm_after_clawback =
         token_account_balance(&lifecycle_test.rpc_client, realm_authority_ata).await;
@@ -468,7 +486,7 @@ pub async fn test_clawback(
     let voter_balance_after_withdraw = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_after_withdraw, 0);
 
-    vsr_addin
+    addin_cookie
         .close_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -478,16 +496,17 @@ pub async fn test_clawback(
         )
         .await?;
 
+    delay_ms(300).await;
     Ok(())
 }
 
 pub async fn test_deposit_cliff(
     lifecycle_test: &mut LifecycleTest,
-    vsr_addin: &VsrCookie,
+    addin_cookie: &AddinCookie,
     registrar: &RegistrarCookie,
     first_token_owner_record: &TokenOwnerRecordCookie,
 ) -> Result<(), Box<dyn Error>> {
-    let first_voting_mint = vsr_addin
+    let first_voting_mint = addin_cookie
         .configure_voting_mint(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -503,8 +522,8 @@ pub async fn test_deposit_cliff(
             None,
         )
         .await;
-    // not closed
-    let voter = vsr_addin
+    
+    let voter = addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -513,6 +532,7 @@ pub async fn test_deposit_cliff(
             &lifecycle_test.first_voter_authority,
         )
         .await;
+    delay_ms(300).await;
 
     let voter_authority_ata = get_associated_token_address_with_program_id(
         &lifecycle_test.first_voter_authority.pubkey(),
@@ -523,7 +543,7 @@ pub async fn test_deposit_cliff(
     let get_balances = |deposit_id| {
         balances(
             &lifecycle_test.rpc_client,
-            vsr_addin,
+            addin_cookie,
             &registrar,
             voter_authority_ata,
             &voter,
@@ -533,7 +553,7 @@ pub async fn test_deposit_cliff(
         )
     };
     let withdraw = |amount: u64| {
-        vsr_addin.withdraw(
+        addin_cookie.withdraw(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -545,7 +565,7 @@ pub async fn test_deposit_cliff(
         )
     };
     let deposit = |amount: u64| {
-        vsr_addin.deposit(
+        addin_cookie.deposit(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -562,7 +582,7 @@ pub async fn test_deposit_cliff(
     let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_initial, 0);
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -576,8 +596,10 @@ pub async fn test_deposit_cliff(
             false,
         )
         .await?;
+    delay_ms(300).await;
 
     deposit(9000).await.unwrap();
+    delay_ms(300).await;
 
     let after_deposit = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_deposit.token + after_deposit.vault);
@@ -589,7 +611,7 @@ pub async fn test_deposit_cliff(
     withdraw(1).await.expect_err("nothing vested yet");
 
     // Advance almost 1 day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -598,10 +620,11 @@ pub async fn test_deposit_cliff(
         )
         .await;
     let after_day1 = get_balances(0).await;
+    delay_ms(300).await;
     assert_eq!(after_day1.voter_weight, 2 * after_day1.vault); // still saturated
 
     // Advance almost 1 day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -610,10 +633,11 @@ pub async fn test_deposit_cliff(
         )
         .await;
     let after_day2 = get_balances(0).await;
+    delay_ms(300).await;
     assert_eq!(after_day2.voter_weight, 3 * after_day2.vault / 2); // locking half done
 
     // Advance almost 1 day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -622,10 +646,12 @@ pub async fn test_deposit_cliff(
         )
         .await;
     let after_day1 = get_balances(0).await;
+    delay_ms(300).await;
     assert_eq!(after_day1.voter_weight, 2 * after_day1.vault); // still saturated
 
     // deposit some more
     deposit(1000).await.unwrap();
+    delay_ms(300).await;
 
     let after_cliff = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_cliff.token + after_cliff.vault);
@@ -636,6 +662,7 @@ pub async fn test_deposit_cliff(
     // can withdraw everything now
     withdraw(10001).await.expect_err("withdrew too much");
     withdraw(10000).await.unwrap();
+    delay_ms(300).await;
 
     let after_withdraw = get_balances(0).await;
     assert_eq!(
@@ -646,7 +673,7 @@ pub async fn test_deposit_cliff(
     assert_eq!(after_withdraw.vault, 0);
     assert_eq!(after_withdraw.deposit, 0);
 
-    vsr_addin
+    addin_cookie
         .close_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -655,17 +682,18 @@ pub async fn test_deposit_cliff(
             &lifecycle_test.first_voter_authority,
         )
         .await?;
+    delay_ms(300).await;
 
     Ok(())
 }
 
 pub async fn test_deposit_constant(
     lifecycle_test: &mut LifecycleTest,
-    vsr_addin: &VsrCookie,
+    addin_cookie: &AddinCookie,
     registrar: &RegistrarCookie,
     first_token_owner_record: &TokenOwnerRecordCookie,
 ) -> Result<(), Box<dyn Error>> {
-    let first_voting_mint = vsr_addin
+    let first_voting_mint = addin_cookie
         .configure_voting_mint(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -682,7 +710,7 @@ pub async fn test_deposit_constant(
         )
         .await;
     // not closed
-    let voter = vsr_addin
+    let voter = addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -691,6 +719,7 @@ pub async fn test_deposit_constant(
             &lifecycle_test.first_voter_authority,
         )
         .await;
+    delay_ms(300).await;
 
     let voter_authority_ata = get_associated_token_address_with_program_id(
         &lifecycle_test.first_voter_authority.pubkey(),
@@ -701,7 +730,7 @@ pub async fn test_deposit_constant(
     let get_balances = |deposit_id| {
         balances(
             &lifecycle_test.rpc_client,
-            vsr_addin,
+            addin_cookie,
             &registrar,
             voter_authority_ata,
             &voter,
@@ -711,7 +740,7 @@ pub async fn test_deposit_constant(
         )
     };
     let withdraw = |amount: u64| {
-        vsr_addin.withdraw(
+        addin_cookie.withdraw(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -723,7 +752,7 @@ pub async fn test_deposit_constant(
         )
     };
     let deposit = |amount: u64| {
-        vsr_addin.deposit(
+        addin_cookie.deposit(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -740,7 +769,7 @@ pub async fn test_deposit_constant(
     let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_initial, 0);
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -754,8 +783,10 @@ pub async fn test_deposit_constant(
             false,
         )
         .await?;
+    delay_ms(300).await;
 
     deposit(9000).await.unwrap();
+    delay_ms(300).await;
 
     let after_deposit = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_deposit.token + after_deposit.vault);
@@ -766,7 +797,7 @@ pub async fn test_deposit_constant(
     withdraw(1).await.expect_err("all locked up");
 
     // Advance almost 1 day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -774,12 +805,14 @@ pub async fn test_deposit_constant(
             3 * 24 * 60 * 60,
         )
         .await;
+    delay_ms(300).await;
     let after_day3 = get_balances(0).await;
     assert_eq!(after_day3.voter_weight, after_deposit.voter_weight); // unchanged
 
     withdraw(1).await.expect_err("all locked up");
 
     deposit(1000).await.unwrap();
+    delay_ms(300).await;
 
     let after_deposit = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_deposit.token + after_deposit.vault);
@@ -790,7 +823,7 @@ pub async fn test_deposit_constant(
     withdraw(1).await.expect_err("all locked up");
 
     // Change the whole thing to cliff lockup
-    vsr_addin
+    addin_cookie
         .reset_lockup(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -802,7 +835,7 @@ pub async fn test_deposit_constant(
         )
         .await
         .expect_err("can't reduce period");
-    vsr_addin
+    addin_cookie
         .reset_lockup(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -814,6 +847,7 @@ pub async fn test_deposit_constant(
         )
         .await
         .unwrap();
+    delay_ms(300).await;
 
     let after_reset = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_reset.token + after_reset.vault);
@@ -824,7 +858,7 @@ pub async fn test_deposit_constant(
     withdraw(1).await.expect_err("all locked up");
 
     // advance to six days
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -832,10 +866,12 @@ pub async fn test_deposit_constant(
             6 * 24 * 60 * 60,
         )
         .await;
+    delay_ms(300).await;
 
     withdraw(10000).await.unwrap();
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .close_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -844,17 +880,18 @@ pub async fn test_deposit_constant(
             &lifecycle_test.first_voter_authority,
         )
         .await?;
+    delay_ms(300).await;
 
     Ok(())
 }
 
 pub async fn test_deposit_daily_vesting(
     lifecycle_test: &mut LifecycleTest,
-    vsr_addin: &VsrCookie,
+    addin_cookie: &AddinCookie,
     registrar: &RegistrarCookie,
     first_token_owner_record: &TokenOwnerRecordCookie,
 ) -> Result<(), Box<dyn Error>> {
-    let first_voting_mint = vsr_addin
+    let first_voting_mint = addin_cookie
         .configure_voting_mint(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -871,7 +908,7 @@ pub async fn test_deposit_daily_vesting(
         )
         .await;
     // not closed
-    let voter = vsr_addin
+    let voter = addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -880,6 +917,7 @@ pub async fn test_deposit_daily_vesting(
             &lifecycle_test.first_voter_authority,
         )
         .await;
+    delay_ms(300).await;
 
     let voter_authority_ata = get_associated_token_address_with_program_id(
         &lifecycle_test.first_voter_authority.pubkey(),
@@ -890,7 +928,7 @@ pub async fn test_deposit_daily_vesting(
     let get_balances = |deposit_id: u8| {
         balances(
             &lifecycle_test.rpc_client,
-            vsr_addin,
+            addin_cookie,
             &registrar,
             voter_authority_ata,
             &voter,
@@ -900,7 +938,7 @@ pub async fn test_deposit_daily_vesting(
         )
     };
     let withdraw = |amount: u64, deposit_id: u8| {
-        vsr_addin.withdraw(
+        addin_cookie.withdraw(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -912,7 +950,7 @@ pub async fn test_deposit_daily_vesting(
         )
     };
     let deposit = |amount: u64, deposit_id: u8| {
-        vsr_addin.deposit(
+        addin_cookie.deposit(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -928,8 +966,9 @@ pub async fn test_deposit_daily_vesting(
         token_account_balance(&lifecycle_test.rpc_client, voter_authority_ata).await;
     let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_initial, 0);
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -943,7 +982,9 @@ pub async fn test_deposit_daily_vesting(
             false,
         )
         .await?;
+    delay_ms(300).await;
     deposit(9000, 0).await.unwrap();
+    delay_ms(300).await;
 
     let after_deposit = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_deposit.token + after_deposit.vault);
@@ -959,11 +1000,12 @@ pub async fn test_deposit_daily_vesting(
     withdraw(1, 0).await.expect_err("nothing vested yet");
 
     // check vote weight reduction after an hour
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,&registrar, 
             &lifecycle_test.realm_authority, 60 * 60)
         .await;
+    delay_ms(300).await;
     let after_hour = get_balances(0).await;
     assert_eq!(
         after_hour.voter_weight,
@@ -971,16 +1013,16 @@ pub async fn test_deposit_daily_vesting(
     );
 
     // advance a day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,&registrar, 
             &lifecycle_test.realm_authority, 25 * 60 * 60)
         .await;
-    // sleep    
-    delay_seconds(2).await;
+    delay_ms(300).await;
 
     withdraw(3001, 0).await.expect_err("withdrew too much");
     withdraw(3000, 0).await.unwrap();
+    delay_ms(300).await;
 
     let after_withdraw = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_withdraw.token + after_withdraw.vault);
@@ -994,6 +1036,7 @@ pub async fn test_deposit_daily_vesting(
     // There are two vesting periods left, if we add 5000 to the deposit,
     // half of that should vest each day.
     deposit(5000, 0).await.unwrap();
+    delay_ms(300).await;
 
     let after_deposit = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_deposit.token + after_deposit.vault);
@@ -1007,24 +1050,25 @@ pub async fn test_deposit_daily_vesting(
     withdraw(1, 0).await.expect_err("nothing vested yet");
 
     // advance another day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,&registrar, 
             &lifecycle_test.realm_authority, 49 * 60 * 60)
         .await;
-    delay_seconds(2).await;
+    delay_ms(300).await;
 
 
     // There is just one period left, should be fully withdrawable after
     deposit(1000, 0).await.unwrap();
 
-    delay_seconds(2).await;
+    delay_ms(300).await;
 
 
     // can withdraw 3000 (original deposit) plus 2500 (second deposit)
     // nothing from the third deposit is vested
     withdraw(5501, 0).await.expect_err("withdrew too much");
     withdraw(5500, 0).await.unwrap();
+    delay_ms(300).await;
 
     let after_withdraw = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_withdraw.token + after_withdraw.vault);
@@ -1036,16 +1080,16 @@ pub async fn test_deposit_daily_vesting(
     assert_eq!(after_withdraw.deposit, 6500);
 
     // advance another day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,&registrar, 
             &lifecycle_test.realm_authority, 73 * 60 * 60)
         .await;
-    delay_seconds(2).await;
-
+    delay_ms(300).await;
 
     // can withdraw the rest
-    withdraw(6500, 0).await.unwrap();
+    withdraw(6500, 0).await;
+    delay_ms(300).await;
 
     let after_withdraw = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_withdraw.token + after_withdraw.vault);
@@ -1054,7 +1098,8 @@ pub async fn test_deposit_daily_vesting(
     assert_eq!(after_withdraw.deposit, 0);
 
     // if we deposit now, we can immediately withdraw
-    deposit(1000, 0).await.unwrap();
+    deposit(1000, 0).await;
+    delay_ms(300).await;
 
     let after_deposit = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_deposit.token + after_deposit.vault);
@@ -1062,7 +1107,8 @@ pub async fn test_deposit_daily_vesting(
     assert_eq!(after_deposit.vault, 1000);
     assert_eq!(after_deposit.deposit, 1000);
 
-    withdraw(1000, 0).await.unwrap();
+    withdraw(1000, 0).await;
+    delay_ms(300).await;
 
     let after_withdraw = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_withdraw.token + after_withdraw.vault);
@@ -1070,26 +1116,27 @@ pub async fn test_deposit_daily_vesting(
     assert_eq!(after_withdraw.vault, 0);
     assert_eq!(after_withdraw.deposit, 0);
 
-    vsr_addin
+    addin_cookie
         .close_deposit_entry(
             &lifecycle_test.rpc_client,&voter, 
             &lifecycle_test.first_voter_authority, 0)
-        .await
-        .unwrap();
+        .await;
+    delay_ms(300).await;
 
     //
     // Check vesting periods in the future and in the past
     //
 
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,&registrar, 
             &lifecycle_test.realm_authority, 0)
         .await;
+    delay_ms(300).await;
 
     let now = clock::Clock::get()?.unix_timestamp as u64;
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1104,7 +1151,9 @@ pub async fn test_deposit_daily_vesting(
         )
         .await
         .unwrap();
+    delay_ms(300).await;
     deposit(30, 0).await.unwrap();
+    delay_ms(300).await;
 
     let deposits0 = get_balances(0).await;
     // since the deposit happened late, the 30 added tokens were spread over
@@ -1120,18 +1169,18 @@ pub async fn test_deposit_daily_vesting(
     withdraw(1, 0).await.expect_err("not vested enough");
 
     // advance to withdraw so that we can close
-    vsr_addin
+    addin_cookie
     .set_time_offset(
         &lifecycle_test.rpc_client,&registrar, 
         &lifecycle_test.realm_authority, 100 * 60 * 60)
     .await;
 
-    delay_seconds(2).await;
-    
+    delay_ms(300).await;
     withdraw(30, 0).await?;
+    delay_ms(300).await;
 
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1144,9 +1193,10 @@ pub async fn test_deposit_daily_vesting(
             3,
             false,
         )
-        .await
-        .unwrap();
-    deposit(3000, 1).await.unwrap();
+        .await;
+    delay_ms(300).await;
+    deposit(3000, 1).await;
+    delay_ms(300).await;
 
     let deposits1 = get_balances(1).await;
     assert_eq!(
@@ -1158,17 +1208,18 @@ pub async fn test_deposit_daily_vesting(
 
     withdraw(1, 1).await.expect_err("not vested enough");
     // advance to withdraw so that we can close
-    vsr_addin
+    addin_cookie
     .set_time_offset(
         &lifecycle_test.rpc_client,&registrar, 
         &lifecycle_test.realm_authority, 100 * 60 * 60)
     .await;
 
-    delay_seconds(2).await;
+    delay_ms(300).await;
     
     withdraw(3030, 1).await?;
+    delay_ms(300).await;
 
-    vsr_addin
+    addin_cookie
         .close_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1177,6 +1228,7 @@ pub async fn test_deposit_daily_vesting(
             &lifecycle_test.first_voter_authority,
         )
         .await?;
+    delay_ms(300).await;
 
     Ok(())
 }
@@ -1184,11 +1236,11 @@ pub async fn test_deposit_daily_vesting(
 
 pub async fn test_deposit_monthly_vesting(
     lifecycle_test: &mut LifecycleTest,
-    vsr_addin: &VsrCookie,
+    addin_cookie: &AddinCookie,
     registrar: &RegistrarCookie,
     first_token_owner_record: &TokenOwnerRecordCookie,
 ) -> Result<(), Box<dyn Error>> {
-    let first_voting_mint = vsr_addin
+    let first_voting_mint = addin_cookie
         .configure_voting_mint(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1205,7 +1257,7 @@ pub async fn test_deposit_monthly_vesting(
         )
         .await;
     // not closed
-    let voter = vsr_addin
+    let voter = addin_cookie
         .create_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1214,6 +1266,7 @@ pub async fn test_deposit_monthly_vesting(
             &lifecycle_test.first_voter_authority,
         )
         .await;
+    delay_ms(300).await;
 
     let voter_authority_ata = get_associated_token_address_with_program_id(
         &lifecycle_test.first_voter_authority.pubkey(),
@@ -1224,7 +1277,7 @@ pub async fn test_deposit_monthly_vesting(
     let get_balances = |deposit_id| {
         balances(
             &lifecycle_test.rpc_client,
-            vsr_addin,
+            addin_cookie,
             &registrar,
             voter_authority_ata,
             &voter,
@@ -1234,7 +1287,7 @@ pub async fn test_deposit_monthly_vesting(
         )
     };
     let withdraw = |amount: u64| {
-        vsr_addin.withdraw(
+        addin_cookie.withdraw(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -1246,7 +1299,7 @@ pub async fn test_deposit_monthly_vesting(
         )
     };
     let deposit = |amount: u64| {
-        vsr_addin.deposit(
+        addin_cookie.deposit(
             &lifecycle_test.rpc_client,
             &registrar,
             &voter,
@@ -1263,7 +1316,7 @@ pub async fn test_deposit_monthly_vesting(
     let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_initial, 0);
 
-    vsr_addin
+    addin_cookie
         .create_deposit_entry(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1277,8 +1330,10 @@ pub async fn test_deposit_monthly_vesting(
             false,
         )
         .await?;
+    delay_ms(300).await;
 
     deposit(9000).await.unwrap();
+    delay_ms(300).await;
 
     let after_deposit = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_deposit.token + after_deposit.vault);
@@ -1290,7 +1345,7 @@ pub async fn test_deposit_monthly_vesting(
     withdraw(1).await.expect_err("nothing vested yet");
 
     // Advance almost 1 day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1298,11 +1353,12 @@ pub async fn test_deposit_monthly_vesting(
             24 * 60 * 60,
         )
         .await;
+    delay_ms(300).await;
     let after_day1 = get_balances(0).await;
     assert_eq!(after_day1.voter_weight, 2 * after_day1.vault); // still saturated
 
     // Advance almost 1 day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1310,13 +1366,13 @@ pub async fn test_deposit_monthly_vesting(
             30 * 24 * 60 * 60,
         )
         .await;
-    delay_seconds(2).await;
+    delay_ms(300).await;
 
     // cannot withdraw yet, nothing is vested
     withdraw(1).await.expect_err("nothing vested yet");
 
     // Advance almost 1 day
-    vsr_addin
+    addin_cookie
         .set_time_offset(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1324,13 +1380,15 @@ pub async fn test_deposit_monthly_vesting(
             32 * 24 * 60 * 60,
         )
         .await;
-    delay_seconds(2).await;
+    delay_ms(300).await;
 
     withdraw(3001).await.expect_err("withdrew too much");
     withdraw(3000).await.unwrap();
+    delay_ms(300).await;
 
     // deposit some more
     deposit(1000).await.unwrap();
+    delay_ms(300).await;
 
     let after_cliff = get_balances(0).await;
     assert_eq!(voter_ata_initial, after_cliff.token + after_cliff.vault);
@@ -1341,6 +1399,7 @@ pub async fn test_deposit_monthly_vesting(
     // can withdraw everything now
     withdraw(10001).await.expect_err("withdrew too much");
     withdraw(10000).await.unwrap();
+    delay_ms(300).await;
 
     let after_withdraw = get_balances(0).await;
     assert_eq!(
@@ -1351,7 +1410,7 @@ pub async fn test_deposit_monthly_vesting(
     assert_eq!(after_withdraw.vault, 0);
     assert_eq!(after_withdraw.deposit, 0);
 
-    vsr_addin
+    addin_cookie
         .close_voter(
             &lifecycle_test.rpc_client,
             &registrar,
@@ -1360,6 +1419,7 @@ pub async fn test_deposit_monthly_vesting(
             &lifecycle_test.first_voter_authority,
         )
         .await?;
+    delay_ms(300).await;
 
     Ok(())
 }

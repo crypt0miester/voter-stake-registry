@@ -1,16 +1,16 @@
-use crate::program_test::solana_program::sysvar::rent;
 use anchor_client::solana_sdk::signature::Keypair;
 use anchor_client::solana_sdk::signer::Signer;
 use anchor_lang::system_program;
 use anchor_spl::token::TokenAccount;
 use program_test::{get_account, process_transaction, GovernanceRealmCookie};
+use solana_program::sysvar::rent;
 use spl_token::solana_program::instruction::Instruction;
 use crate::program_test::TokenOwnerRecordCookie;
 
 use crate::*;
 
 #[derive(Clone)]
-pub struct VsrCookie {
+pub struct AddinCookie {
     pub program_id: Pubkey,
 }
 
@@ -32,7 +32,7 @@ pub struct VoterCookie {
     pub token_owner_record: Pubkey,
 }
 
-impl VsrCookie {
+impl AddinCookie {
     pub async fn create_registrar(
         &self,
         rpc_client: &RpcClient,

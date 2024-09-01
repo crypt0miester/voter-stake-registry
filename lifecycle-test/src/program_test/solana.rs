@@ -28,9 +28,9 @@ pub async fn process_transaction(
         all_signers.extend_from_slice(signers);
     }
 
-    let last_blockhash = rpc_client.get_latest_blockhash().await.unwrap();
+    let lastest_blockhash = rpc_client.get_latest_blockhash().await.unwrap();
 
-    transaction.sign(&all_signers, last_blockhash);
+    transaction.sign(&all_signers, lastest_blockhash);
 
     rpc_client
         .send_and_confirm_transaction(&transaction)
