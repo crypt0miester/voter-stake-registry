@@ -5,7 +5,6 @@ use spl_governance::state::enums::{MintMaxVoterWeightSource, VoteThreshold, Vote
 use spl_governance::state::realm::GoverningTokenConfigAccountArgs;
 use spl_governance::state::realm_config::GoverningTokenType;
 use spl_governance::state::{proposal, vote_record};
-use std::sync::Arc;
 
 use crate::*;
 
@@ -14,6 +13,7 @@ pub struct GovernanceCookie {
     pub program_id: Pubkey,
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct GovernanceRealmCookie {
     pub governance: GovernanceCookie,
@@ -29,11 +29,13 @@ pub struct TokenOwnerRecordCookie {
     pub address: Pubkey,
 }
 
+#[allow(dead_code)]
 pub struct AccountGovernanceCookie {
     pub address: Pubkey,
     pub governed_account: Pubkey,
 }
 
+#[allow(dead_code)]
 pub struct MintGovernanceCookie {
     pub address: Pubkey,
     pub governed_mint: Pubkey,
@@ -387,7 +389,9 @@ impl GovernanceRealmCookie {
             authority,
             Some(&[&signer1, &signer2]),
         )
-        .await
+        .await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -414,6 +418,8 @@ impl GovernanceRealmCookie {
 
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(&rpc_client, &instructions, &signer, None).await
+        process_transaction(&rpc_client, &instructions, &signer, None).await?;
+
+        Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use crate::program_test::TokenOwnerRecordCookie;
 use anchor_client::solana_sdk::signature::Keypair;
 use anchor_client::solana_sdk::signer::Signer;
 use anchor_lang::system_program;
@@ -5,7 +6,6 @@ use anchor_spl::token::TokenAccount;
 use program_test::{get_account, process_transaction, GovernanceRealmCookie};
 use solana_program::sysvar::rent;
 use spl_token::solana_program::instruction::Instruction;
-use crate::program_test::TokenOwnerRecordCookie;
 
 use crate::*;
 
@@ -14,6 +14,7 @@ pub struct AddinCookie {
     pub program_id: Pubkey,
 }
 
+#[allow(dead_code)]
 pub struct RegistrarCookie {
     pub address: Pubkey,
     pub authority: Pubkey,
@@ -25,6 +26,7 @@ pub struct VotingMintConfigCookie {
     pub mint: Pubkey,
 }
 
+#[allow(dead_code)]
 pub struct VoterCookie {
     pub address: Pubkey,
     pub authority: Pubkey,
@@ -153,14 +155,9 @@ impl AddinCookie {
         //let signer1 = Keypair::from_base58_string(&payer.to_base58_string());
         let signer2 = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(
-            rpc_client,
-            &instructions,
-            payer,
-            Some(&[&signer2]),
-        )
-        .await
-        .unwrap();
+        process_transaction(rpc_client, &instructions, payer, Some(&[&signer2]))
+            .await
+            .unwrap();
 
         VotingMintConfigCookie { mint: mint.clone() }
     }
@@ -220,9 +217,14 @@ impl AddinCookie {
         let signer1 = Keypair::from_base58_string(&payer.to_base58_string());
         let signer2 = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(&rpc_client, &instructions, payer, Some(&[&signer1, &signer2]))
-            .await
-            .unwrap();
+        process_transaction(
+            &rpc_client,
+            &instructions,
+            payer,
+            Some(&[&signer1, &signer2]),
+        )
+        .await
+        .unwrap();
 
         VoterCookie {
             address: voter,
@@ -282,8 +284,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&voter_authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, voter_authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, voter_authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -327,8 +330,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -411,8 +415,13 @@ impl AddinCookie {
         let signer1 = Keypair::from_base58_string(&grant_authority.to_base58_string());
         let signer2 = Keypair::from_base58_string(&token_authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, grant_authority, Some(&[&signer1, &signer2]))
-            .await?;
+        process_transaction(
+            rpc_client,
+            &instructions,
+            grant_authority,
+            Some(&[&signer1, &signer2]),
+        )
+        .await?;
 
         Ok(voter_cookie)
     }
@@ -456,8 +465,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&realm_authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, realm_authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, realm_authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -503,8 +513,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -542,8 +553,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&voter_authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, voter_authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, voter_authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     pub fn update_voter_weight_record_instruction(
@@ -582,13 +594,15 @@ impl AddinCookie {
     ) -> Result<voter_stake_registry::state::VoterWeightRecord, Box<dyn Error>> {
         let instructions = vec![self.update_voter_weight_record_instruction(registrar, voter)];
 
-        process_transaction(rpc_client, &instructions,payer, None).await?;
+        process_transaction(rpc_client, &instructions, payer, None).await?;
 
-        Ok(get_account::<voter_stake_registry::state::VoterWeightRecord>(
-            rpc_client,
+        Ok(
+            get_account::<voter_stake_registry::state::VoterWeightRecord>(
+                rpc_client,
                 voter.voter_weight_record,
             )
-            .await)
+            .await,
+        )
     }
 
     #[allow(dead_code)]
@@ -622,8 +636,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -662,8 +677,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -703,8 +719,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions, authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -744,8 +761,9 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        process_transaction(rpc_client,&instructions,authority, Some(&[&signer]))
-            .await
+        process_transaction(rpc_client, &instructions, authority, Some(&[&signer])).await?;
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -777,7 +795,7 @@ impl AddinCookie {
             data,
         }];
 
-        process_transaction(rpc_client,&instructions,payer, None)
+        process_transaction(rpc_client, &instructions, payer, None)
             .await
             .unwrap();
     }
@@ -812,8 +830,7 @@ impl AddinCookie {
         // clone the secrets
         let signer = Keypair::from_base58_string(&authority.to_base58_string());
 
-        
-        process_transaction(rpc_client,&instructions, authority, Some(&[&signer]))
+        process_transaction(rpc_client, &instructions, authority, Some(&[&signer]))
             .await
             .unwrap();
     }
@@ -842,9 +859,6 @@ impl VoterCookie {
     }
 
     pub fn vault_address(&self, mint: &VotingMintConfigCookie) -> Pubkey {
-        spl_associated_token_account::get_associated_token_address(
-            &self.address,
-            &mint.mint,
-        )
+        spl_associated_token_account::get_associated_token_address(&self.address, &mint.mint)
     }
 }

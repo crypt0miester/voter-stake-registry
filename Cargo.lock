@@ -6104,6 +6104,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-program",
+ "solana-transaction-status",
  "spl-associated-token-account 3.0.4",
  "spl-governance",
  "spl-governance-addin-api",

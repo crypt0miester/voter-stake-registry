@@ -1,17 +1,37 @@
 use std::error::Error;
 
 use anchor_client::solana_client::nonblocking::rpc_client::RpcClient;
-use anchor_client::solana_sdk::signature::Keypair;
+use anchor_client::solana_sdk::signature::{Keypair, Signature};
 use anchor_client::solana_sdk::signer::Signer;
 use anchor_client::solana_sdk::transaction::Transaction;
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::AccountDeserialize;
 use anchor_spl::token::TokenAccount;
-use solana_program::hash::Hash;
 use solana_program::instruction::Instruction;
 use solana_program::{program_pack::Pack, system_instruction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::*;
+
+#[allow(dead_code)]
+pub async fn get_transaction_logs(
+    rpc_client: &RpcClient,
+    signature: &Signature,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    // Fetch the transaction
+    let transaction = rpc_client
+        .get_transaction(
+            &signature,
+            solana_transaction_status::UiTransactionEncoding::JsonParsed,
+        )
+        .await?;
+
+    // Extract and return the logs
+    Ok(transaction
+        .transaction
+        .meta
+        .and_then(|meta| meta.log_messages.into())
+        .unwrap_or_default())
+}
 
 #[allow(dead_code)]
 pub async fn process_transaction(
@@ -19,7 +39,7 @@ pub async fn process_transaction(
     instructions: &[Instruction],
     payer: &Keypair,
     signers: Option<&[&Keypair]>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Signature, Box<dyn Error>> {
     let mut transaction = Transaction::new_with_payer(&instructions, Some(&payer.pubkey()));
 
     let mut all_signers = vec![payer];
@@ -32,11 +52,11 @@ pub async fn process_transaction(
 
     transaction.sign(&all_signers, lastest_blockhash);
 
-    rpc_client
+    let signature = rpc_client
         .send_and_confirm_transaction(&transaction)
         .await?;
 
-    return Ok(());
+    return Ok(signature);
 }
 
 #[allow(dead_code)]
@@ -154,8 +174,6 @@ pub async fn mint_tokens(
     return Ok(());
 }
 
-
-#[allow(dead_code)]
 pub async fn get_account_data(rpc_client: &RpcClient, address: Pubkey) -> Vec<u8> {
     rpc_client
         .get_account(&address)
@@ -165,14 +183,12 @@ pub async fn get_account_data(rpc_client: &RpcClient, address: Pubkey) -> Vec<u8
         .to_vec()
 }
 
-#[allow(dead_code)]
 pub async fn get_account<T: AccountDeserialize>(rpc_client: &RpcClient, address: Pubkey) -> T {
     let data = get_account_data(rpc_client, address).await;
     let mut data_slice: &[u8] = &data;
     AccountDeserialize::try_deserialize(&mut data_slice).unwrap()
 }
 
-#[allow(dead_code)]
 pub async fn token_account_balance(rpc_client: &RpcClient, address: Pubkey) -> u64 {
     get_account::<TokenAccount>(rpc_client, address)
         .await
