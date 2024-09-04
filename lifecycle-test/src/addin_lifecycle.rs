@@ -1,11 +1,11 @@
 use crate::{
     program_test::{
-        balances, create_mint, get_account, mint_tokens, token_account_balance, AddinCookie, GovernanceCookie, GovernanceRealmCookie, RegistrarCookie, TokenOwnerRecordCookie
+        balances, create_mint, get_account, get_account_data, mint_tokens, token_account_balance, AddinCookie, GovernanceCookie, GovernanceRealmCookie, RegistrarCookie, TokenOwnerRecordCookie
     },
     LifecycleTest,
 };
 use anchor_client::{solana_client::nonblocking::rpc_client::RpcClient, solana_sdk::signature::{Keypair, Signer}};
-use anchor_lang::prelude::Pubkey;
+use anchor_lang::{prelude::Pubkey, Key};
 use anchor_spl::token::TokenAccount;
 use solana_program::{clock, native_token::sol_to_lamports};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
@@ -109,7 +109,6 @@ pub async fn initialize_realm_accounts(
     lifecycle_test: &mut LifecycleTest,
 ) -> Result<
     (
-        GovernanceCookie,
         GovernanceRealmCookie,
         TokenOwnerRecordCookie,
         AddinCookie,
@@ -152,7 +151,6 @@ pub async fn initialize_realm_accounts(
         )
         .await;
     Ok((
-        governance,
         realm,
         first_token_owner_record,
         addin_cookie,
@@ -371,6 +369,11 @@ pub async fn test_clawback(
         &spl_token::id(),
     );
 
+    let voter_authority_ata = get_associated_token_address_with_program_id(
+        &lifecycle_test.first_voter_authority.pubkey(),
+        &lifecycle_test.first_mint_pubkey.unwrap(),
+        &spl_token::id(),
+    );
     let realm_ata_initial =
         token_account_balance(&lifecycle_test.rpc_client, realm_authority_ata).await;
     let voter_ata_initial =
@@ -1874,60 +1877,12 @@ pub async fn test_grants(
         )
         .await;
     delay_ms(300).await;
-
-    let voter_authority_ata = get_associated_token_address_with_program_id(
-        &lifecycle_test.first_voter_authority.pubkey(),
-        &lifecycle_test.first_mint_pubkey.unwrap(),
-        &spl_token::id(),
-    );
+    
     let grant_funds = get_associated_token_address_with_program_id(
         &lifecycle_test.grant_authority.pubkey(),
         &lifecycle_test.first_mint_pubkey.unwrap(),
         &spl_token::id(),
-    );
-    let get_balances = |deposit_id: u8| {
-        balances(
-            &lifecycle_test.rpc_client,
-            addin_cookie,
-            &registrar,
-            voter_authority_ata,
-            &voter,
-            &first_voting_mint,
-            &lifecycle_test.first_voter_authority,
-            deposit_id,
-        )
-    };
-    let withdraw = |amount: u64, deposit_id: u8| {
-        addin_cookie.withdraw(
-            &lifecycle_test.rpc_client,
-            &registrar,
-            &voter,
-            &first_voting_mint,
-            &lifecycle_test.first_voter_authority,
-            voter_authority_ata,
-            deposit_id,
-            amount,
-        )
-    };
-    let deposit = |amount: u64, deposit_id: u8| {
-        addin_cookie.deposit(
-            &lifecycle_test.rpc_client,
-            &registrar,
-            &voter,
-            &first_voting_mint,
-            &lifecycle_test.first_voter_authority,
-            voter_authority_ata,
-            deposit_id,
-            amount,
-        )
-    };
-
-    let voter_ata_initial =
-        token_account_balance(&lifecycle_test.rpc_client, voter_authority_ata).await;
-
-    let grante_ata_initial =
-        token_account_balance(&lifecycle_test.rpc_client, grant_funds).await;
-    let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
+    );let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_initial, 0);
     delay_ms(300).await;
 
@@ -2099,7 +2054,7 @@ pub async fn test_grants(
 }
 
 
-
+#[allow(dead_code)]
 async fn get_lockup_data(
     rpc_client: &RpcClient,
     voter: Pubkey,
@@ -2206,9 +2161,6 @@ pub async fn test_internal_transfer(
     let day = 24 * 60 * 60;
     let hour = 60 * 60;
 
-
-    let voter_ata_initial =
-        token_account_balance(&lifecycle_test.rpc_client, voter_authority_ata).await;
     let voter_balance_initial = voter.deposit_amount(&lifecycle_test.rpc_client, 0).await;
     assert_eq!(voter_balance_initial, 0);
     delay_ms(300).await;
@@ -2373,7 +2325,162 @@ pub async fn test_internal_transfer(
 
     assert_eq!(lockup_status(2).await, (0, 5 * day, 0, 0, 0));
     assert_eq!(lockup_status(4).await, (hour, 7 * day, 900, 900, 0));
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn deserialize_event<T: anchor_lang::Event>(event: &str) -> Option<T> {
+    let data = base64::decode(event).ok()?;
+    if data.len() < 8 || data[0..8] != T::discriminator() {
+        return None;
+    }
+    T::try_from_slice(&data[8..]).ok()
+}
+
+
+
+pub async fn test_log_voter_info(
+    lifecycle_test: &mut LifecycleTest,
+    addin_cookie: &AddinCookie,
+    registrar: &RegistrarCookie,
+    first_token_owner_record: &TokenOwnerRecordCookie,
+) -> Result<(), Box<dyn Error>> {
+    let first_voting_mint = addin_cookie
+        .configure_voting_mint(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &lifecycle_test.realm_authority,
+            &lifecycle_test.realm_authority,
+            0,
+            &lifecycle_test.first_mint_pubkey.unwrap(),
+            0,
+            1.0,
+            1.0,
+            365 * 24 * 60 * 60,
+            None,
+            None,
+        )
+        .await;
     
+    let voter = addin_cookie
+        .create_voter(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &first_token_owner_record,
+            &lifecycle_test.first_voter_authority,
+            &lifecycle_test.first_voter_authority,
+        )
+        .await;
+    delay_ms(300).await;
+
+    let voter_authority_ata = get_associated_token_address_with_program_id(
+        &lifecycle_test.first_voter_authority.pubkey(),
+        &lifecycle_test.first_mint_pubkey.unwrap(),
+        &spl_token::id(),
+    );
+
+    addin_cookie
+        .create_deposit_entry(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &lifecycle_test.first_voter_authority,
+            &first_voting_mint,
+            0,
+            LockupKind::Monthly,
+            None,
+            12,
+            false,
+        )
+        .await?;
+    delay_ms(300).await;
+
+    addin_cookie.deposit(
+        &lifecycle_test.rpc_client,
+        &registrar,
+        &voter,
+        &first_voting_mint,
+        &lifecycle_test.first_voter_authority,
+        voter_authority_ata,
+        0,
+        12000,
+    ).await?;
+    delay_ms(300).await;
+
+    addin_cookie
+        .set_time_offset(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &&lifecycle_test.realm_authority,
+            365 * 24 * 60 * 60 / 12,
+        )
+        .await;
+    delay_ms(300).await;
+
+    let txn_logs = addin_cookie
+        .log_voter_info(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &lifecycle_test.first_voter_authority,
+            0,
+        )
+        .await?;
+    println!("{:?}", txn_logs);
+
+    let voter_event =
+        deserialize_event::<voter_stake_registry::events::VoterInfo>(&txn_logs[0]).unwrap();
+    assert_eq!(voter_event.voting_power_baseline, 12000);
+    assert_eq!(
+        voter_event.voting_power,
+        12000 + (1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11) * 1000 / 12
+    );
+
+    let deposit_event =
+        deserialize_event::<voter_stake_registry::events::DepositEntryInfo>(&txn_logs[1]).unwrap();
+    assert_eq!(deposit_event.deposit_entry_index, 0);
+    assert_eq!(deposit_event.voting_mint_config_index, 0);
+    assert_eq!(deposit_event.unlocked, 1000);
+    assert_eq!(deposit_event.voting_power, voter_event.voting_power);
+    assert_eq!(
+        deposit_event.voting_power_baseline,
+        voter_event.voting_power_baseline
+    );
+    assert!(deposit_event.locking.is_some());
+    let locking = deposit_event.locking.unwrap();
+    assert!(locking.vesting.is_some());
+    let vesting = locking.vesting.unwrap();
+    assert_eq!(locking.amount, 11000);
+    assert_eq!(vesting.rate, 1000);
+    assert_eq!(
+        locking.end_timestamp.unwrap(),
+        vesting.next_timestamp + 10 * (365 * 24 * 60 * 60 / 12)
+    );
+
+    // withdraw here then close
+    addin_cookie
+    .set_time_offset(
+        &lifecycle_test.rpc_client,
+        &registrar,
+        &&lifecycle_test.realm_authority,
+        365 * 24 * 60 * 60,
+    )
+    .await;
+    delay_ms(300).await; 
+    
+    // withdraw to close
+    addin_cookie.withdraw(
+        &lifecycle_test.rpc_client,
+        &registrar,
+        &voter,
+        &first_voting_mint,
+        &lifecycle_test.first_voter_authority,
+        voter_authority_ata,
+        0,
+        12000,
+    ).await?;
+    delay_ms(300).await;   
     addin_cookie
         .close_voter(
             &lifecycle_test.rpc_client,
@@ -2384,6 +2491,520 @@ pub async fn test_internal_transfer(
         )
         .await?;
     delay_ms(300).await;
+
+    Ok(())
+}
+
+
+pub async fn test_reset_lockup(
+    lifecycle_test: &mut LifecycleTest,
+    addin_cookie: &AddinCookie,
+    registrar: &RegistrarCookie,
+    first_token_owner_record: &TokenOwnerRecordCookie,
+) -> Result<(), Box<dyn Error>> {
+    let first_voting_mint = addin_cookie
+        .configure_voting_mint(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &lifecycle_test.realm_authority,
+            &lifecycle_test.realm_authority,
+            0,
+            &lifecycle_test.first_mint_pubkey.unwrap(),
+            0,
+            1.0,
+            0.0,
+            5 * 365 * 24 * 60 * 60,
+            None,
+            None,
+        )
+        .await;
+    
+    let voter = addin_cookie
+        .create_voter(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &first_token_owner_record,
+            &lifecycle_test.first_voter_authority,
+            &lifecycle_test.first_voter_authority,
+        )
+        .await;
+    delay_ms(300).await;
+
+    let voter_authority_ata = get_associated_token_address_with_program_id(
+        &lifecycle_test.first_voter_authority.pubkey(),
+        &lifecycle_test.first_mint_pubkey.unwrap(),
+        &spl_token::id(),
+    );
+
+    let withdraw = |index: u8, amount: u64| {
+        addin_cookie.withdraw(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &first_voting_mint,
+            &lifecycle_test.first_voter_authority,
+            voter_authority_ata,
+            index,
+            amount,
+        )
+    };
+    let deposit = |index: u8, amount: u64| {
+        addin_cookie.deposit(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &first_voting_mint,
+            &lifecycle_test.first_voter_authority,
+            voter_authority_ata,
+            index,
+            amount,
+        )
+    };
+    let reset_lockup = |index: u8, periods: u32, kind: LockupKind| {
+        addin_cookie.reset_lockup(
+            &lifecycle_test.rpc_client,&registrar, &voter, 
+            &lifecycle_test.first_voter_authority, index, kind, periods)
+    };
+    let time_offset = Arc::new(RefCell::new(0i64));
+    let advance_time = |extra: u64| {
+        *time_offset.borrow_mut() += extra as i64;
+        addin_cookie.set_time_offset(
+            &lifecycle_test.rpc_client,&registrar, 
+            &lifecycle_test.realm_authority, *time_offset.borrow())
+    };
+    let lockup_status =
+        |index: u8| get_lockup_data(
+            &lifecycle_test.rpc_client, voter.address, index, *time_offset.borrow());
+
+            let month = LockupKind::Monthly.period_secs();
+            let day = 24 * 60 * 60;
+            let hour = 60 * 60;
+
+    addin_cookie
+        .create_deposit_entry(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &lifecycle_test.first_voter_authority,
+            &first_voting_mint,
+            7,
+            LockupKind::Daily,
+            None,
+            3,
+            false,
+        )
+        .await?;
+    delay_ms(300).await;
+    deposit(7, 80).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 3 * day, 80, 80, 0));
+    deposit(7, 10).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 3 * day, 90, 90, 0));
+    reset_lockup(7, 2, LockupKind::Daily)
+        .await
+        .expect_err("can't relock for less periods");
+    reset_lockup(7, 3, LockupKind::Daily).await.unwrap(); // just resets start to current timestamp
+    assert_eq!(lockup_status(7).await, (0, 3 * day, 90, 90, 0));
+
+    // advance more than a day
+    advance_time(day + hour).await;
+    delay_ms(300).await;
+    assert_eq!(lockup_status(7).await, (day + hour, 3 * day, 90, 90, 30));
+    deposit(7, 10).await.unwrap();
+    delay_ms(300).await;
+    assert_eq!(lockup_status(7).await, (hour, 2 * day, 70, 100, 30));
+    reset_lockup(7, 10, LockupKind::Daily).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 10 * day, 100, 100, 0));
+
+    // advance four more days
+    advance_time(4 * day + hour).await;
+    delay_ms(300).await;
+
+    assert_eq!(
+        lockup_status(7).await,
+        (4 * day + hour, 10 * day, 100, 100, 40)
+    );
+    withdraw(7, 20).await.unwrap(); // partially withdraw vested
+    assert_eq!(
+        lockup_status(7).await,
+        (4 * day + hour, 10 * day, 100, 80, 20)
+    );
+    reset_lockup(7, 5, LockupKind::Daily)
+        .await
+        .expect_err("can't relock for less periods");
+    reset_lockup(7, 6, LockupKind::Daily).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 6 * day, 80, 80, 0));
+    reset_lockup(7, 8, LockupKind::Daily).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 8 * day, 80, 80, 0));
+
+    // advance three more days
+    advance_time(3 * day + hour).await;
+    delay_ms(300).await;
+    assert_eq!(
+        lockup_status(7).await,
+        (3 * day + hour, 8 * day, 80, 80, 30)
+    );
+    deposit(7, 10).await.unwrap();
+    assert_eq!(lockup_status(7).await, (hour, 5 * day, 60, 90, 30));
+
+    delay_ms(300).await; // avoid deposit and withdraw in one slot
+
+    withdraw(7, 20).await.unwrap(); 
+    delay_ms(300).await; 
+    assert_eq!(lockup_status(7).await, (hour, 5 * day, 60, 70, 10));
+    reset_lockup(7, 10, LockupKind::Daily).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 10 * day, 70, 70, 0));
+
+    reset_lockup(7, 1, LockupKind::Monthly).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 1 * month, 70, 70, 0));
+
+    reset_lockup(7, 31, LockupKind::Daily)
+        .await
+        .expect_err("decreasing strictness");
+    reset_lockup(7, 31, LockupKind::None)
+        .await
+        .expect_err("decreasing strictness");
+    reset_lockup(7, 30, LockupKind::Cliff)
+        .await
+        .expect_err("period shortnend");
+    reset_lockup(7, 31, LockupKind::Cliff).await.unwrap();
+    assert_eq!(lockup_status(7).await, (0, 31 * day, 70, 70, 0));
+
+    withdraw(7, 70).await.unwrap(); 
+
+    delay_ms(300).await; // avoid deposit and withdraw in one slot
+    // withdraw here then close
+    addin_cookie
+        .close_voter(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &first_voting_mint,
+            &lifecycle_test.first_voter_authority,
+        )
+        .await?;
+    delay_ms(300).await;
+
+    Ok(())
+}
+
+
+
+pub async fn test_voting(
+    lifecycle_test: &mut LifecycleTest,
+    addin_cookie: &AddinCookie,
+    registrar: &RegistrarCookie,
+    first_token_owner_record: &TokenOwnerRecordCookie,
+    realm:GovernanceRealmCookie
+) -> Result<(), Box<dyn Error>> {
+    let first_voting_mint = addin_cookie
+        .configure_voting_mint(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &lifecycle_test.realm_authority,
+            &lifecycle_test.realm_authority,
+            0,
+            &lifecycle_test.first_mint_pubkey.unwrap(),
+            0,
+            2.0,
+            0.0,
+            5 * 365 * 24 * 60 * 60,
+            None,
+            None,
+        )
+        .await;
+    let second_voting_mint = addin_cookie
+        .configure_voting_mint(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &lifecycle_test.realm_authority,
+            &lifecycle_test.realm_authority,
+            1,
+            &lifecycle_test.second_mint_pubkey.unwrap(),
+            0,
+            0.0,
+            0.0,
+            5 * 365 * 24 * 60 * 60,
+            None,
+            Some(&[lifecycle_test.community_mint_pubkey.unwrap()]),
+        )
+        .await;
+    
+    let voter = addin_cookie
+        .create_voter(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &first_token_owner_record,
+            &lifecycle_test.first_voter_authority,
+            &lifecycle_test.first_voter_authority,
+        )
+        .await;
+    delay_ms(300).await;
+
+    let second_token_owner_record = realm
+        .create_token_owner_record(
+            &lifecycle_test.rpc_client,
+            lifecycle_test.second_voter_authority.pubkey(),
+            &lifecycle_test.second_voter_authority,
+        )
+        .await;
+    delay_ms(300).await;
+    
+    let voter2 = addin_cookie
+        .create_voter(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &second_token_owner_record,
+            &lifecycle_test.second_voter_authority,
+            &lifecycle_test.second_voter_authority,
+        )
+        .await;
+    delay_ms(300).await;
+
+    let voter_authority_ata_first_mint = get_associated_token_address_with_program_id(
+        &lifecycle_test.first_voter_authority.pubkey(),
+        &lifecycle_test.first_mint_pubkey.unwrap(),
+        &spl_token::id(),
+    );
+
+    let voter2_authority_ata_second_mint = get_associated_token_address_with_program_id(
+        &lifecycle_test.second_voter_authority.pubkey(),
+        &lifecycle_test.second_mint_pubkey.unwrap(),
+        &spl_token::id(),
+    );
+
+    addin_cookie
+        .create_deposit_entry(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &lifecycle_test.first_voter_authority,
+            &first_voting_mint,
+            0,
+            LockupKind::None,
+            None,
+            0,
+            false,
+        )
+        .await?;
+    delay_ms(300).await;
+
+    addin_cookie
+        .deposit(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &first_voting_mint,
+            &lifecycle_test.first_voter_authority,
+            voter_authority_ata_first_mint,
+            0,
+            499,
+        )
+        .await?;
+
+    delay_ms(300).await; 
+    
+
+    // need vote weight of 1000, but only have 499 * 2
+    realm
+        .create_proposal(
+            &lifecycle_test.rpc_client,
+            realm.community_token_mint.key(),
+            &lifecycle_test.first_voter_authority,
+            &voter,
+            &lifecycle_test.first_voter_authority,
+            addin_cookie.update_voter_weight_record_instruction(&registrar, &voter),
+        )
+        .await
+        .expect_err("not enough tokens to create proposal");
+
+    addin_cookie
+        .deposit(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &first_voting_mint,
+            &lifecycle_test.first_voter_authority,
+            voter_authority_ata_first_mint,
+            0,
+            1,
+        )
+        .await?;
+    delay_ms(300).await; 
+
+    let proposal = realm
+        .create_proposal(
+            &lifecycle_test.rpc_client,
+            realm.community_token_mint.key(),
+            &lifecycle_test.first_voter_authority,
+            &voter,
+            &lifecycle_test.first_voter_authority,
+            addin_cookie.update_voter_weight_record_instruction(&registrar, &voter),
+        )
+        .await?;
+
+    delay_ms(300).await; 
+    addin_cookie
+        .withdraw(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter,
+            &first_voting_mint,
+            &lifecycle_test.first_voter_authority,
+            voter_authority_ata_first_mint,
+            0,
+            1,
+        )
+        .await
+        .expect_err("could not withdraw"); // need to relinquish voting power
+
+    delay_ms(300).await;
+
+
+    addin_cookie
+        .create_deposit_entry(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter2,
+            &lifecycle_test.second_voter_authority,
+            &first_voting_mint,
+            0,
+            LockupKind::None,
+            None,
+            0,
+            false,
+        )
+        .await?;
+    delay_ms(300).await;
+
+    addin_cookie
+        .deposit(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter2,
+            &first_voting_mint,
+            &lifecycle_test.second_voter_authority,
+            voter_authority_ata_first_mint,
+            0,
+            750,
+        )
+        .await?;
+
+    delay_ms(300).await; 
+
+    addin_cookie
+        .create_deposit_entry(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter2,
+            &lifecycle_test.second_voter_authority,
+            &second_voting_mint,
+            1,
+            LockupKind::None,
+            None,
+            0,
+            false,
+        )
+        .await?;
+    delay_ms(300).await;
+
+    addin_cookie
+        .deposit(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter2,
+            &second_voting_mint,
+            &lifecycle_test.second_voter_authority,
+            voter2_authority_ata_second_mint,
+            1,
+            1000,
+        )
+        .await?;
+
+    delay_ms(300).await; 
+    
+
+    realm
+        .cast_vote(
+            &lifecycle_test.rpc_client,
+            realm.community_token_mint,
+            &proposal,
+            &voter2,
+            &lifecycle_test.second_voter_authority,
+            &lifecycle_test.second_voter_authority,
+            addin_cookie.update_voter_weight_record_instruction(&registrar, &voter2),
+        )
+        .await
+        .unwrap();
+
+    delay_ms(300).await; 
+
+    let proposal_data = get_account_data(
+        &lifecycle_test.rpc_client, proposal.address).await;
+    let mut data_slice: &[u8] = &proposal_data;
+    let proposal_state: spl_governance::state::proposal::ProposalV2 =
+        anchor_lang::AnchorDeserialize::deserialize(&mut data_slice).unwrap();
+    assert_eq!(proposal_state.options[0].vote_weight, 2 * 750);
+    assert_eq!(proposal_state.deny_vote_weight.unwrap(), 0);
+
+    delay_ms(300).await; 
+    addin_cookie
+        .withdraw(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter2,
+            &first_voting_mint,
+            &lifecycle_test.second_voter_authority,
+            voter_authority_ata_first_mint,
+            0,
+            1,
+        )
+        .await
+        .expect_err("could not withdraw"); // need to relinquish voting power
+
+    addin_cookie
+        .withdraw(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter2,
+            &second_voting_mint,
+            &lifecycle_test.second_voter_authority,
+            voter2_authority_ata_second_mint,
+            1,
+            1,
+        )
+        .await?;
+
+    delay_ms(300).await;
+
+    realm
+        .relinquish_vote(
+            &lifecycle_test.rpc_client,
+            realm.community_token_mint,
+            &proposal,
+            voter2.token_owner_record,
+            &lifecycle_test.second_voter_authority,
+            lifecycle_test.second_voter_authority.pubkey(),
+            realm.clone(),
+        )
+        .await
+        .unwrap();
+
+    delay_ms(300).await;
+
+
+    addin_cookie
+        .withdraw(
+            &lifecycle_test.rpc_client,
+            &registrar,
+            &voter2,
+            &first_voting_mint,
+            &lifecycle_test.second_voter_authority,
+            voter_authority_ata_first_mint,
+            0,
+            750,
+        )
+        .await?;
+    
 
     Ok(())
 }

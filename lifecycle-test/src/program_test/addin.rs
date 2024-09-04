@@ -1,9 +1,10 @@
 use crate::program_test::TokenOwnerRecordCookie;
+use addin_lifecycle::delay_ms;
 use anchor_client::solana_sdk::signature::Keypair;
 use anchor_client::solana_sdk::signer::Signer;
 use anchor_lang::system_program;
 use anchor_spl::token::TokenAccount;
-use program_test::{get_account, process_transaction, GovernanceRealmCookie};
+use program_test::{get_account, get_transaction_logs, process_transaction, GovernanceRealmCookie};
 use solana_program::sysvar::rent;
 use spl_token::solana_program::instruction::Instruction;
 
@@ -774,7 +775,7 @@ impl AddinCookie {
         voter: &VoterCookie,
         payer: &Keypair,
         deposit_entry_begin: u8,
-    ) {
+    ) -> Result<Vec<String>, Box<dyn Error>> {
         let data =
             anchor_lang::InstructionData::data(&voter_stake_registry::instruction::LogVoterInfo {
                 deposit_entry_begin,
@@ -795,9 +796,11 @@ impl AddinCookie {
             data,
         }];
 
-        process_transaction(rpc_client, &instructions, payer, None)
+        let signature = process_transaction(rpc_client, &instructions, payer, None)
             .await
             .unwrap();
+
+        get_transaction_logs(rpc_client, &signature).await
     }
 
     #[allow(dead_code)]

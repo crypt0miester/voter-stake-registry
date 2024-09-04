@@ -1,6 +1,6 @@
 use addin_lifecycle::{
     fund_keypairs, initialize_realm_accounts, setup_mints_and_tokens, test_basic, test_clawback,
-    test_deposit_cliff, test_deposit_constant, test_deposit_daily_vesting, test_deposit_monthly_vesting, test_deposit_no_locking, test_grants,
+    test_deposit_cliff, test_deposit_constant, test_deposit_daily_vesting, test_deposit_monthly_vesting, test_deposit_no_locking, test_grants, test_internal_transfer, test_log_voter_info, test_reset_lockup, test_voting,
 };
 use anchor_client::solana_client::nonblocking::rpc_client::RpcClient;
 use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // initialize mints and token accounts
     setup_mints_and_tokens(&mut lifecycle_test, 3).await?;
 
-    let (governance, realm, first_token_owner_record, addin_cookie, registrar) =
+    let (realm, first_token_owner_record, addin_cookie, registrar) =
         initialize_realm_accounts(&mut lifecycle_test).await?;
 
     test_basic(
@@ -112,10 +112,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await?;
 
     test_deposit_monthly_vesting(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record).await?;
-    test_deposit_no_locking(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record, realm).await?;
-    
-    // requires some withdrawals and closing of the voter account
-    // test_grants(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record).await?;
+    test_deposit_no_locking(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record, realm.clone()).await?;
+    test_log_voter_info(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record).await?;
+    test_reset_lockup(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record).await?;
+    test_voting(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record, realm).await?;
+
+    // put at the end due to withdrawals and closing of voter accounts
+    test_grants(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record).await?;
+    test_internal_transfer(&mut lifecycle_test, &addin_cookie, &registrar, &first_token_owner_record).await?;
 
     println!("Upgraded to spl_governance_4.so");
 
